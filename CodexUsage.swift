@@ -75,6 +75,18 @@ enum UsageReader {
     @Published var error: String?
     @Published var loading = false
     private var timer: Timer?
+    var exhaustedWindows: [WindowUsage] {
+        [fiveHour, weekly].compactMap { $0 }.filter { $0.usedPercent >= 100 }
+    }
+    var isOutOfUsage: Bool { !exhaustedWindows.isEmpty }
+    var exhaustedUntil: Date? {
+        let exhausted = exhaustedWindows
+        guard !exhausted.isEmpty, exhausted.allSatisfy({ $0.resetsAt != nil }) else { return nil }
+        let resets = exhausted.compactMap(\.resetsAt)
+            .map { Date(timeIntervalSince1970: $0) }
+        guard resets.allSatisfy({ $0 > Date() }) else { return nil }
+        return resets.max()
+    }
     func start() {
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in Task { @MainActor in self?.refresh() } }
@@ -132,6 +144,27 @@ struct PopoverView: View {
                 Spacer()
                 if model.loading { ProgressView().controlSize(.small).scaleEffect(0.75).frame(width: 20, height: 20) }
             }.padding(.bottom, 19)
+            if model.isOutOfUsage {
+                VStack(alignment: .leading, spacing: 9) {
+                    Text(outOfUsageMessage)
+                        .font(.system(size: 13, weight: .medium))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("Request more usage to keep going")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                    Link(destination: URL(string: "https://chatgpt.com/settings/usage")!) {
+                        Text("Request more usage")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityHint("Opens ChatGPT usage settings")
+                }
+                .padding(12)
+                .background(Color(nsColor: .controlBackgroundColor).opacity(0.7), in: RoundedRectangle(cornerRadius: 11))
+                .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(Color.primary.opacity(0.08)))
+                .padding(.bottom, 18)
+            }
             if model.updated == nil && model.loading {
                 Text("Loading usage…").font(.system(size: 12)).foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 112)
             } else if model.updated == nil {
@@ -150,9 +183,14 @@ struct PopoverView: View {
                 }
                 Spacer(minLength: 0)
                 Button("Refresh") { model.refresh() }.disabled(model.loading)
+                Link("Manage usage", destination: URL(string: "https://chatgpt.com/settings/usage")!)
                 Button("Quit") { NSApplication.shared.terminate(nil) }
             }.controlSize(.small)
         }.padding(18).frame(width: 300)
+    }
+    private var outOfUsageMessage: String {
+        guard let reset = model.exhaustedUntil else { return "You're out of usage" }
+        return "You're out of usage until " + reset.formatted(date: .abbreviated, time: .shortened)
     }
 }
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -170,8 +208,11 @@ struct PopoverView: View {
         func value(_ usage: WindowUsage?) -> String { usage.map { "\(max(0, min(100, 100 - $0.usedPercent)))%" } ?? "—" }
         statusItem.button?.title = ""
         statusItem.button?.image = Self.statusIcon(fiveHour: model.fiveHour, weekly: model.weekly)
-        statusItem.button?.toolTip = "Codex usage: five-hour and weekly remaining"
-        statusItem.button?.setAccessibilityLabel("Codex usage, five-hour \(value(model.fiveHour)) remaining, weekly \(value(model.weekly)) remaining")
+        let availability = model.isOutOfUsage ? model.exhaustedUntil.map {
+            "Out of usage until " + $0.formatted(date: .abbreviated, time: .shortened)
+        } ?? "Usage limit reached" : "five-hour and weekly limits remaining"
+        statusItem.button?.toolTip = "Codex usage: \(availability)"
+        statusItem.button?.setAccessibilityLabel("Codex usage, five-hour \(value(model.fiveHour)) remaining, weekly \(value(model.weekly)) remaining, \(availability)")
     }
     static func statusIcon(fiveHour: WindowUsage?, weekly: WindowUsage?) -> NSImage {
         func fraction(_ usage: WindowUsage?) -> CGFloat {

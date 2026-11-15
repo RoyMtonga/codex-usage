@@ -19,6 +19,8 @@ The app searches common CLI installation locations and the PATH inherited when i
 
 The app asks the installed Codex app server for your account's rate limits using your existing Codex sign-in. It does not store your credentials. If a refresh fails, it shows the last successful reading and update time; unavailable windows are marked accordingly. The Codex app-server interface is experimental and may change.
 
+When either limit is exhausted, the popover adds an out-of-usage message and the effective reset time when available. Its usage-settings shortcut opens ChatGPT in your browser. The icon continues to show the remaining amounts visually; workspace credits are not included in the rate-limit data this app reads.
+
 This independent project is not an official OpenAI application. The build is signed locally; distributing prebuilt binaries may require additional Apple signing and notarization.
 
 ## License
